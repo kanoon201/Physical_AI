@@ -1,0 +1,5 @@
+// Copy to wifi_secrets.h (gitignored) and fill in.
+#pragma once
+
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"

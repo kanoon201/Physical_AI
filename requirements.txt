@@ -1,0 +1,13 @@
+# V2 PC-side dependencies.
+#
+# Only two third-party packages are used; everything else in V2/ is stdlib
+# (socket, threading, urllib, json, argparse, select, concurrent.futures).
+# The legacy pygame controllers live in the pre-V2 folders and are NOT needed
+# to run anything in V2/.
+#
+#   pip install -r requirements.txt
+#
+# Verified on Python 3.13.5 with opencv-python 5.0.0 and numpy 2.5.2.
+
+opencv-python>=4.8
+numpy>=1.24

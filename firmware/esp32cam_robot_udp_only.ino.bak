@@ -1,0 +1,618 @@
+#define CAMERA_MODEL_AI_THINKER
+#include "camera_pins.h"
+#include "esp_camera.h"
+#include "esp_system.h"
+#include "soc/rtc_cntl_reg.h"
+#include "soc/soc.h"
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <esp_log.h>
+#include <esp_task_wdt.h>
+
+const char *hostName = "my-robot-cam";
+
+// --- 1. NETWORK & PORTS ---
+#define WIFICOUNT 1
+const char *ssids[WIFICOUNT] = {"YOUR_WIFI_SSID"};
+const char *passs[WIFICOUNT] = {"YOUR_WIFI_PASSWORD"};
+
+const int controlPort = 44441;
+const int videoPort = 44442;
+const int discoveryPort = 44444;
+
+// --- 2. TIMEOUTS & INTERVALS ---
+#define BEACON_TIMEOUT 120000     // 120s reboot if no server contact
+#define LOST_GUI_TIMEOUT 90000    // 90s to mark GUI as disconnected
+#define TELEMETRY_INTERVAL 1000   // 1s between telemetry packets
+#define WATCHDOG_TIMEOUT_S 5      // 5s hardware watchdog
+#define AUTOSTOP_INTERVAL 150     // 150ms engine failsafe
+#define CHUNK_DELAY_US 1000       // 1ms to let OS breathe without stalling
+#define POWER_SAVE_DELAY 500      // 500ms sleep loop when disconnected
+
+#define VIDEO_CHUNK_SIZE 1400     // Safer max payload for MTU
+#define CHUNK_YIELD_EVERY 4       // Yield to the scheduler every N chunks, not every chunk
+#define CHUNK_GAP_US 500          // Rough air-time pacing; too small floods the WiFi TX queue
+#define MIN_FRAME_INTERVAL 15     // Floor only; tx_ready is the real pacer
+#define QUALITY_BEST 10           // Lower = better image (esp32-camera is inverted)
+#define QUALITY_WORST 28          // Never degrade past this, even on a bad link
+#define SEQ_LIMIT 10000
+#define SEQ_CLOSE_UPPER 9000
+#define SEQ_CLOSE_LOWER 1000
+
+// --- 3. HARDWARE CONFIG ---
+#define LED_PIN 4
+#define MOTOR_1A 12
+#define MOTOR_1B 13
+#define PWM_RES 16
+#define PWM_FREQ 50
+#define MAX_DUTY 3.27675
+
+// State
+IPAddress serverIP;
+bool pcConnected = false;
+uint32_t lastControlSeq = 0xFFFFFFFF;
+uint32_t telemetry_seq = 0;
+unsigned long lastPacketTime = 0;
+unsigned long lastServerContact = 0;
+
+WiFiUDP videoUDP;
+WiFiUDP udpControl;
+WiFiUDP udpDiscover;
+
+volatile int previous1A = 0;
+volatile int previous1B = 0;
+volatile int oldlight = 0;
+volatile bool CAMCONFIG = false;
+volatile bool controlReset = true;
+volatile framesize_t current_framesize = FRAMESIZE_VGA;
+volatile int current_quality = 12;
+volatile int video_frame_interval = MIN_FRAME_INTERVAL; // Floor; tx_ready paces the rest
+
+// ==========================================
+// CAMERA INIT
+// ==========================================
+void updateCameraSettings() {
+  sensor_t *s = esp_camera_sensor_get();
+  if (s) {
+    s->set_framesize(s, current_framesize);
+    s->set_quality(s, current_quality);
+
+    // Motion blur is the real enemy on a moving car: the sensor is rolling
+    // shutter, and left alone AEC picks a long exposure and smears everything.
+    // Bias darker so the shutter stays short, and let gain make up the light.
+    s->set_exposure_ctrl(s, 1);
+    s->set_aec2(s, 1);                      // DSP-assisted metering
+    s->set_ae_level(s, -1);                 // darker bias => shorter shutter
+    s->set_gain_ctrl(s, 1);
+    s->set_gainceiling(s, GAINCEILING_4X);  // cap gain so noise stays sane
+
+    // These are all off by driver default and all worth having.
+    s->set_lenc(s, 1);      // lens correction: kills corner vignetting
+    s->set_bpc(s, 1);       // black pixel correction
+    s->set_wpc(s, 1);       // white pixel correction (hot pixels)
+    s->set_raw_gma(s, 1);   // gamma curve: much better tonal range
+    s->set_dcw(s, 1);       // better downscaling
+
+    s->set_whitebal(s, 1);
+    s->set_awb_gain(s, 1);
+    s->set_wb_mode(s, 0);   // 0=auto. Pin to 1 (sunny) if AWB hunts outdoors.
+
+    s->set_contrast(s, 1);  // slight bump survives JPEG compression better
+    s->set_saturation(s, 0);
+    // NOTE: set_sharpness()/set_denoise() are unimplemented for OV2640 and
+    // silently return -1. Don't bother.
+
+    Serial.printf("Camera Mode Updated: FS %d, Q %d\n", current_framesize,
+                  current_quality);
+  }
+}
+
+void initCamera() {
+  CAMCONFIG = false;
+  Serial.printf("Init Camera Driver...\n");
+  esp_camera_deinit();
+  delay(100);
+
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+
+  config.xclk_freq_hz = 20000000; // Full rate: more sensor throughput
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = current_framesize;
+  config.jpeg_quality = current_quality;
+  // With GRAB_LATEST, every extra buffer is another stale frame queued ahead
+  // of you. 6 was adding ~6 frames of steering latency; 2 is what you want.
+  config.fb_count = 2;
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.grab_mode = CAMERA_GRAB_LATEST;
+
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed: 0x%x\n", err);
+    delay(1000);
+    ESP.restart();
+  }
+
+  Serial.println("Stabilizing Sensor...");
+  for (int i = 0; i < 15; i++) {
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (fb) {
+      esp_camera_fb_return(fb);
+      delay(20);
+    }
+    esp_task_wdt_reset();
+  }
+
+  // esp_camera_init() only applies what is in camera_config_t: framesize,
+  // quality, buffers. Everything the sensor actually needs to look right
+  // and stay fast -- the -1 exposure bias that keeps the shutter short,
+  // the gain ceiling, lens/black-pixel/gamma correction -- lives in
+  // updateCameraSettings(), and until this call it only ran when a
+  // framesize command or the adaptive loop happened to fire. A board that
+  // was left alone therefore streamed with AEC free to pick a long
+  // exposure, which in a dim room drops the SENSOR's own framerate to a
+  // couple of fps no matter how much WiFi headroom there is.
+  updateCameraSettings();
+
+  Serial.println("Camera Init Success");
+  CAMCONFIG = true;
+}
+
+// ==========================================
+// TASKS: VIDEO STREAM (PSRAM Double-Buffered)
+// ==========================================
+uint8_t *tx_buffer = NULL;
+volatile size_t tx_frame_size = 0;
+volatile bool tx_ready = false;
+volatile uint32_t current_seq_global = 0;
+
+void cameraDrainTask(void *pvParameters) {
+  esp_task_wdt_add(NULL);
+  unsigned long lastCam = 0;
+  static bool sensor_sleeping = false;
+
+  while (true) {
+    esp_task_wdt_reset();
+    if (!CAMCONFIG) {
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+
+    if (!pcConnected) {
+      if (!sensor_sleeping) {
+        sensor_t *s = esp_camera_sensor_get();
+        if (s) {
+          s->set_reg(s, 0xff, 0xff, 0x01); // bank 1
+          s->set_reg(s, 0x12, 0xff, 0x40); // Power down
+          sensor_sleeping = true;
+          Serial.println(" [Power] Sensor Sleeping...");
+        }
+      }
+      vTaskDelay(pdMS_TO_TICKS(POWER_SAVE_DELAY));
+      continue;
+    } else {
+      if (sensor_sleeping) {
+        sensor_t *s = esp_camera_sensor_get();
+        if (s) {
+          s->set_reg(s, 0xff, 0xff, 0x01); // bank 1
+          s->set_reg(s, 0x12, 0xff, 0x00); // Power up
+          sensor_sleeping = false;
+          Serial.println(" [Power] Sensor Waking Up (Stabilizing)...");
+          for (int i = 0; i < 5; i++) {
+            camera_fb_t *fb = esp_camera_fb_get();
+            if (fb)
+              esp_camera_fb_return(fb);
+            vTaskDelay(pdMS_TO_TICKS(60));
+            esp_task_wdt_reset();
+          }
+          Serial.println(" [Power] Sensor Ready.");
+        }
+      }
+    }
+
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue; 
+    }
+
+    if (!tx_ready && (millis() - lastCam > (unsigned long)video_frame_interval)) {
+      size_t frame_size_loc = fb->len;
+      if (frame_size_loc > 1024 * 1024) {
+        Serial.println(" [Video] Frame too large for tx_buffer, dropping!");
+      } else {
+        memcpy(tx_buffer, fb->buf, frame_size_loc);
+        lastCam = millis();
+        // Must be a frame COUNTER, not millis(). The PC computes delivery% as
+        // (seq - last_seq - 1); a timestamp makes every gap look like ~50 lost
+        // frames, which drove the adaptive logic to max compression forever.
+        static uint32_t frame_counter = 0;
+        current_seq_global = ++frame_counter;
+        tx_frame_size = frame_size_loc;
+        tx_ready = true;
+      }
+    }
+
+    esp_camera_fb_return(fb); 
+  }
+}
+
+void streamTXTask(void *pvParameters) {
+  esp_task_wdt_add(NULL);
+  
+  while (true) {
+    esp_task_wdt_reset();
+
+    if (!tx_ready) {
+      vTaskDelay(pdMS_TO_TICKS(5));
+      continue;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+      tx_ready = false; 
+      vTaskDelay(pdMS_TO_TICKS(100));
+      continue;
+    }
+
+    size_t frame_size = tx_frame_size;
+    uint32_t current_seq = current_seq_global;
+    unsigned long tx_start = millis();
+
+    size_t chunk_size = VIDEO_CHUNK_SIZE;
+    int total_chunks = (frame_size + chunk_size - 1) / chunk_size;
+
+    static int debug_counter = 0;
+    if (debug_counter++ % 30 == 0) {
+      Serial.printf(" [Video] Sending frame %u (%d chunks) to %s\n",
+                    current_seq, total_chunks, serverIP.toString().c_str());
+    }
+
+    uint8_t header[8];
+    memcpy(header, &current_seq, 4);
+    uint16_t tc = (uint16_t)total_chunks;
+    memcpy(header + 4, &tc, 2);
+
+    for (int i = 0; i < total_chunks; i++) {
+        uint16_t chunk_id = (uint16_t)i;
+        memcpy(header + 6, &chunk_id, 2);
+
+        size_t offset = i * chunk_size;
+        size_t current_chunk_len = (frame_size - offset > chunk_size)
+                                       ? chunk_size
+                                       : (frame_size - offset);
+
+        if (videoUDP.beginPacket(serverIP, videoPort)) {
+          videoUDP.write(header, 8);
+          videoUDP.write(tx_buffer + offset, current_chunk_len);
+          videoUDP.endPacket();
+        }
+        // A 2ms sleep per chunk was the hard framerate ceiling: a 40KB VGA
+        // frame is ~29 chunks, so this alone cost ~58ms/frame. Yield
+        // periodically instead -- enough to keep the WiFi stack fed without
+        // paying the tick cost on every packet.
+        if ((i % CHUNK_YIELD_EVERY) == (CHUNK_YIELD_EVERY - 1)) {
+          vTaskDelay(1);
+          esp_task_wdt_reset();
+        } else {
+          delayMicroseconds(CHUNK_GAP_US);
+        }
+    }
+    esp_task_wdt_reset();
+
+    tx_ready = false; 
+
+    unsigned long actual_send_ms = millis() - tx_start;
+    // int auto_interval = actual_send_ms + 50;
+    // if (auto_interval < 50)
+    //   auto_interval = 50;
+    // video_frame_interval = auto_interval;
+
+    // static int interval_log = 0;
+    // if (interval_log++ % 30 == 0) {
+    //   Serial.printf(
+    //       " [Video] %d chunks, sent in %lums, next interval=%dms (~%d FPS)\n",
+    //       total_chunks, actual_send_ms, auto_interval, 1000 / auto_interval);
+    // }
+  }
+}
+
+// ==========================================
+// TASK: CONTROL & DISCOVERY
+// ==========================================
+void loopcommand(void *pvParameters) {
+  esp_task_wdt_add(NULL); 
+
+  // Standard IPv4 Binding for local network
+  videoUDP.begin(videoPort);
+  udpControl.begin(controlPort);
+  udpDiscover.begin(discoveryPort);
+
+  pcConnected = false;
+  lastServerContact = millis();
+
+  while (true) {
+    esp_task_wdt_reset(); 
+    
+    // 1. ALWAYS LISTEN FOR DISCOVERY
+    int discSize = udpDiscover.parsePacket();
+    if (discSize) {
+      IPAddress newIP = udpDiscover.remoteIP();
+      serverIP = newIP;
+      pcConnected = true;
+      controlReset = true; 
+      lastServerContact = millis();
+
+      static IPAddress lastKnownIP;
+      if (newIP != lastKnownIP) {
+        Serial.print("PC CONNECTED/CHANGED: ");
+        Serial.println(serverIP);
+        for (int i = 0; i < 3; i++) {
+          ledcWrite(LED_PIN, 50);
+          delay(50);
+          ledcWrite(LED_PIN, 0);
+          delay(50);
+        }
+        lastKnownIP = newIP;
+        serverIP = newIP;
+        pcConnected = true;
+        lastServerContact = millis();
+        lastPacketTime = millis();
+      }
+
+      char discBuf[128];
+      int discLen = udpDiscover.read(discBuf, sizeof(discBuf) - 1);
+      if (discLen > 0) {
+        discBuf[discLen] = '\0';
+        char *deliveryStr = strstr(discBuf, "delivery:");
+        if (deliveryStr) {
+          int delivery = atoi(deliveryStr + 9);
+          static int low_delivery_count = 0;
+          static int high_delivery_count = 0;
+
+          if (delivery < 50) {
+            low_delivery_count++;
+            high_delivery_count = 0;
+            if (low_delivery_count >= 3 && current_quality < QUALITY_WORST) {
+              current_quality += 3;
+              if (current_quality > QUALITY_WORST) current_quality = QUALITY_WORST;
+              updateCameraSettings();
+              Serial.printf(" [Adaptive] Delivery %d%% LOW -> quality=%d (more compressed)\n",
+                            delivery, current_quality);
+              low_delivery_count = 0;
+            }
+          } else if (delivery > 80) {
+            high_delivery_count++;
+            low_delivery_count = 0;
+            if (high_delivery_count >= 5 && current_quality > QUALITY_BEST) {
+              current_quality -= 2;
+              if (current_quality < QUALITY_BEST) current_quality = QUALITY_BEST;
+              updateCameraSettings();
+              Serial.printf(" [Adaptive] Delivery %d%% HIGH -> quality=%d (better image)\n",
+                            delivery, current_quality);
+              high_delivery_count = 0;
+            }
+          } else {
+            low_delivery_count = 0;
+            high_delivery_count = 0;
+          }
+        }
+      } else {
+        while (udpDiscover.available())
+          udpDiscover.read();
+      }
+    }
+
+    // 2. LISTEN FOR COMMANDS
+    int packetSize = udpControl.parsePacket();
+    if (packetSize) {
+      lastPacketTime = millis();
+      lastServerContact = millis();
+      char packetBuffer[255];
+      int len = udpControl.read(packetBuffer, 255);
+      if (len > 0) {
+        packetBuffer[len] = 0;
+        String line = String(packetBuffer);
+
+        int c1 = line.indexOf(',');
+        int c2 = line.indexOf(',', c1 + 1);
+        int c3 = line.lastIndexOf(',');
+        if (c1 > 0 && c2 > c1 && c3 > c2) {
+          uint32_t seq = line.substring(0, c1).toInt();
+          int cmd = line.substring(c1 + 1, c2).toInt();
+          int v1 = line.substring(c2 + 1, c3).toInt();
+          int v2 = line.substring(c3 + 1).toInt();
+
+          if (controlReset || seq > lastControlSeq ||
+              (lastControlSeq > SEQ_CLOSE_UPPER && seq < SEQ_CLOSE_LOWER)) {
+            lastControlSeq = seq;
+            controlReset = false; 
+            if (cmd == 0) {
+              previous1A = v1;
+              previous1B = v2;
+            } else if (cmd == 1) {
+              oldlight = v1;
+            } else if (cmd == 3 && v1 == 3 && v2 == 3) {
+              Serial.println("COMMAND: RESET ENGINE");
+              ESP.restart();
+            } else if (cmd == 4 && v1 == 4 && v2 == 4) {
+              Serial.println("COMMAND: Q - FAR  : QVGA 320x240 q14");
+              current_framesize = FRAMESIZE_QVGA;
+              current_quality = 14;
+              updateCameraSettings();
+            } else if (cmd == 5 && v1 == 5 && v2 == 5) {
+              Serial.println("COMMAND: W - NORM : VGA 640x480 q12");
+              current_framesize = FRAMESIZE_VGA;
+              current_quality = 12;
+              updateCameraSettings();
+            } else if (cmd == 6 && v1 == 6 && v2 == 6) {
+              Serial.println("COMMAND: E - HIGH : SVGA 800x600 q11");
+              current_framesize = FRAMESIZE_SVGA;
+              current_quality = 11;
+              updateCameraSettings();
+            } else if (cmd == 7 && v1 == 7 && v2 == 7) {
+              Serial.println("COMMAND: R - MAX  : XGA 1024x768 q14 (low fps)");
+              current_framesize = FRAMESIZE_XGA;
+              current_quality = 14;
+              updateCameraSettings();
+            }
+          }
+        }
+      }
+    }
+
+    // 3. FAILSAFE
+    if (millis() - lastPacketTime > AUTOSTOP_INTERVAL) {
+      previous1A = 0;
+      previous1B = 0;
+    }
+
+    if (pcConnected && millis() - lastServerContact > LOST_GUI_TIMEOUT) {
+      Serial.println("Warning: Lost GUI contact.");
+      pcConnected = false;
+    }
+
+    if (millis() - lastServerContact > BEACON_TIMEOUT) {
+      Serial.println("CRITICAL: No beacon. Rebooting...");
+      ESP.restart();
+    }
+
+    // 4. TELEMETRY
+    static unsigned long lastTele = 0;
+    if (pcConnected && millis() - lastTele > TELEMETRY_INTERVAL) {
+      lastTele = millis();
+      if (WiFi.status() == WL_CONNECTED) {
+        uint32_t chipId = (uint32_t)ESP.getEfuseMac();
+        char chipStr[10];
+        sprintf(chipStr, "%08X", chipId);
+        udpDiscover.beginPacket(serverIP, discoveryPort);
+        udpDiscover.printf("%d,%s,RSSI:%d,SSID:%s,NAME:%s", telemetry_seq,
+                           chipStr, WiFi.RSSI(), WiFi.SSID().c_str(), hostName);
+        udpDiscover.endPacket();
+
+        static int tele_count = 0;
+        if (tele_count++ % 5 == 0) {
+          Serial.printf(" [Telemetry] Sent to %s on port %d\n",
+                        serverIP.toString().c_str(), discoveryPort);
+        }
+
+        telemetry_seq = (telemetry_seq + 1) % SEQ_LIMIT;
+      }
+    }
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
+
+// ==========================================
+// SETUP & LOOP
+// ==========================================
+void setup() {
+  setCpuFrequencyMhz(240); 
+  Serial.begin(115200);
+
+  esp_log_level_set("cam_hal", ESP_LOG_NONE);
+
+  Serial.println("\n\n--- ESP32 CAM ROBOT STARTED ---");
+
+  ledcAttach(LED_PIN, PWM_FREQ, PWM_RES);
+  ledcAttach(MOTOR_1A, PWM_FREQ, PWM_RES);
+  ledcAttach(MOTOR_1B, PWM_FREQ, PWM_RES);
+
+  ledcWrite(LED_PIN, 100);
+
+  Serial.println("Init Camera Driver...");
+  current_framesize = FRAMESIZE_VGA;
+  current_quality = 12;
+  initCamera();
+  vTaskDelay(pdMS_TO_TICKS(500));
+  Serial.println("Camera Ready.");
+
+  bool connected = false;
+  for (int i = 0; i < WIFICOUNT; i++) {
+    Serial.printf("\nAttempting WiFi %d: %s", i, ssids[i]);
+    WiFi.disconnect(true);
+    delay(100);
+    WiFi.mode(WIFI_STA);
+    // Station power-save parks the radio between beacons and adds tens to
+    // >100ms of jitter. For a live control link it must be off.
+    WiFi.setSleep(false);
+    WiFi.setTxPower(WIFI_POWER_19_5dBm); // max TX: more range, fewer retries
+    WiFi.begin(ssids[i], passs[i]);
+    int retry = 0;
+    while (WiFi.status() != WL_CONNECTED && retry < 20) {
+      delay(500);
+      Serial.print(".");
+      retry++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      connected = true;
+      Serial.println("\nCONNECTED!");
+      break;
+    }
+  }
+
+  if (!connected) {
+    Serial.println("\nAll WiFi failed. Restarting...");
+    delay(2000);
+    ESP.restart();
+  }
+
+  Serial.print("Local IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  esp_task_wdt_config_t twdt_config = {
+      .timeout_ms = WATCHDOG_TIMEOUT_S * 1000,
+      .idle_core_mask = 0,
+      .trigger_panic = true,
+  };
+
+  if (esp_task_wdt_init(&twdt_config) != ESP_OK) {
+    esp_task_wdt_reconfigure(&twdt_config);
+  }
+
+  tx_buffer = (uint8_t *)heap_caps_malloc(1024 * 1024, MALLOC_CAP_SPIRAM);
+  if (!tx_buffer) {
+    Serial.println("CRITICAL: Failed to allocate TX double buffer in PSRAM!");
+    delay(1000);
+    ESP.restart();
+  }
+
+  xTaskCreatePinnedToCore(loopcommand, "Ctl", 8192, NULL, 3, NULL, 1);
+  xTaskCreatePinnedToCore(cameraDrainTask, "Cam", 8192, NULL, 3, NULL, 0);
+  xTaskCreatePinnedToCore(streamTXTask, "VTx", 8192, NULL, 2, NULL, 0);
+
+  esp_task_wdt_add(NULL); 
+
+  ledcWrite(LED_PIN, 0);
+}
+
+void loop() {
+  if (!pcConnected) {
+    static bool state = 0;
+    ledcWrite(LED_PIN, state ? 50 : 0);
+    state = !state;
+    vTaskDelay(pdMS_TO_TICKS(200));
+  } else {
+    ledcWrite(LED_PIN, oldlight);
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  ledcWrite(MOTOR_1A, (previous1A * MAX_DUTY));
+  ledcWrite(MOTOR_1B, (previous1B * MAX_DUTY));
+  esp_task_wdt_reset(); 
+}

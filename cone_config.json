@@ -1,0 +1,32 @@
+{
+  "hsv_lower": [
+    90,
+    80,
+    40
+  ],
+  "hsv_upper": [
+    130,
+    255,
+    255
+  ],
+  "min_contour_area": 1500,
+  "max_contour_area": 60000,
+  "min_aspect_ratio": 0.2,
+  "max_aspect_ratio": 1.3,
+  "min_solidity": 0.75,
+  "roi_top_ratio": 0.4,
+  "morph_kernel_size": 5,
+  "lane_half_width_ratio": 0.3,
+  "max_pair_depth_diff_ratio": 0.25,
+  "target_smoothing": 0.6,
+  "min_lane_gap_ratio": 0.15,
+  "lane_memory_frames": 15,
+  "center_deadzone_px": 15,
+  "steer_gain": 0.8,
+  "max_steer": 1.0,
+  "base_throttle": 0.35,
+  "turn_slowdown": 0.5,
+  "throttle_ramp_per_s": 1.0,
+  "stop_after_lost_frames": 5,
+  "one_side_throttle_scale": 0.7
+}

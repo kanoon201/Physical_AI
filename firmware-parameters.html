@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<!-- Reset matching the Artifact host's, so the local file and the published
+     page render identically. -->
+<style>
+  html { color-scheme: light dark; }
+  body { margin: 0; font: 14px system-ui, sans-serif; background: #faf9f7; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<title>พารามิเตอร์กล้อง ESP32-CAM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #eceff1;
+    --surface: #ffffff;
+    --sunken: #e3e8eb;
+    --ink: #101a1f;
+    --muted: #5d7079;
+    --faint: #8496a0;
+    --rule: #cfd9de;
+    --rule-soft: #e0e7ea;
+    --ws: #1f5f7c;
+    --ws-soft: #e2eef4;
+    --rb: #9a5316;
+    --rb-soft: #f6ebe0;
+    --flag: #8b2c47;
+    --flag-soft: #f7e6ea;
+    --shadow: 0 1px 2px rgba(16, 26, 31, .06), 0 8px 24px -16px rgba(16, 26, 31, .3);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1417;
+      --surface: #141e23;
+      --sunken: #101a1e;
+      --ink: #dfe8ec;
+      --muted: #8ba0a9;
+      --faint: #6d828c;
+      --rule: #22323a;
+      --rule-soft: #1b282e;
+      --ws: #7cc3e0;
+      --ws-soft: #16303c;
+      --rb: #e2a068;
+      --rb-soft: #33240f;
+      --flag: #e5849c;
+      --flag-soft: #351a22;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0d1417;
+    --surface: #141e23;
+    --sunken: #101a1e;
+    --ink: #dfe8ec;
+    --muted: #8ba0a9;
+    --faint: #6d828c;
+    --rule: #22323a;
+    --rule-soft: #1b282e;
+    --ws: #7cc3e0;
+    --ws-soft: #16303c;
+    --rb: #e2a068;
+    --rb-soft: #33240f;
+    --flag: #e5849c;
+    --flag-soft: #351a22;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans Thai", "Segoe UI", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 40px 24px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 56px;
+  }
+
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  /* ---------- masthead ---------- */
+  header { display: flex; flex-direction: column; gap: 18px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(28px, 4.4vw, 40px);
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -.015em;
+    text-wrap: balance;
+  }
+
+  .lede {
+    margin: 0;
+    max-width: 68ch;
+    color: var(--muted);
+    font-size: 16px;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 22px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+  }
+
+  .key { display: flex; align-items: baseline; gap: 9px; font-size: 13.5px; }
+  .key b { font-weight: 600; }
+  .key span { color: var(--muted); }
+
+  .dot {
+    width: 9px; height: 9px; flex: none;
+    border-radius: 50%;
+    transform: translateY(-1px);
+  }
+  .dot.ws { background: var(--ws); }
+  .dot.rb { background: var(--rb); }
+  .dot.same { background: var(--faint); }
+
+  /* ---------- sections ---------- */
+  section { display: flex; flex-direction: column; gap: 18px; }
+
+  .shead { display: flex; gap: 16px; align-items: baseline; }
+
+  .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--faint);
+    padding-top: 3px;
+    flex: none;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+  }
+
+  .when {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  section > p { margin: 0 0 0 30px; max-width: 70ch; color: var(--muted); }
+  section > p strong { color: var(--ink); font-weight: 600; }
+
+  /* ---------- comparison table ---------- */
+  .scroll {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  table { border-collapse: collapse; width: 100%; min-width: 720px; }
+
+  thead th {
+    text-align: left;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 12px 16px;
+    background: var(--sunken);
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  thead th.c-ws { color: var(--ws); }
+  thead th.c-rb { color: var(--rb); }
+
+  tbody td {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  td.p {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    border-left: 3px solid transparent;
+    padding-left: 13px;
+  }
+
+  td.d { font-size: 13.5px; color: var(--muted); min-width: 22ch; }
+  td.d b { color: var(--ink); font-weight: 600; }
+
+  td.v {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--faint);
+    width: 20%;
+  }
+
+  /* rows where the two sketches actually differ carry the identity hues */
+  tr.diff td.p { border-left-color: var(--rule); }
+  tr.diff td.v.ws { color: var(--ws); font-weight: 500; }
+  tr.diff td.v.rb { color: var(--rb); font-weight: 500; }
+
+  td.v em { font-style: normal; color: var(--faint); font-weight: 400; }
+
+  .na { color: var(--faint); opacity: .5; }
+
+  /* ---------- callouts ---------- */
+  .note {
+    margin-left: 30px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--flag);
+    border-radius: 3px;
+    font-size: 14px;
+    max-width: 78ch;
+  }
+  .note p { margin: 0; }
+  .note p + p { margin-top: 8px; }
+  .note b { font-weight: 600; }
+  .note .tag {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--flag);
+    margin-bottom: 5px;
+  }
+
+  code {
+    font-size: .92em;
+    background: var(--sunken);
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  /* ---------- ranked list ---------- */
+  ol.rank { margin: 0 0 0 30px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; max-width: 80ch; }
+
+  ol.rank li {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 14px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    align-items: start;
+  }
+
+  ol.rank .r {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--faint);
+    padding-top: 2px;
+  }
+  ol.rank b { font-weight: 600; display: block; }
+  ol.rank span { color: var(--muted); font-size: 13.5px; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    padding-top: 20px;
+    color: var(--faint);
+    font-size: 12.5px;
+    font-family: "IBM Plex Mono", monospace;
+  }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 28px 16px 64px; gap: 44px; }
+    section > p, .note, ol.rank { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">V2 / firmware reference</div>
+    <h1>พารามิเตอร์กล้องและการส่งภาพ ของสองสเก็ตช์</h1>
+    <p class="lede">
+      เทียบค่าทุกตัวที่ตั้งไว้ใน <code>CameraWebServer/</code> กับ <code>firmware/esp32cam_robot/</code>
+      เรียงตามลำดับที่มันถูกเขียนลงกล้องจริงๆ ตอนบูต — ลำดับสำคัญ เพราะบางค่าถ้าเขียนผิดจังหวะจะไม่มีผลเลย
+    </p>
+    <div class="legend">
+      <div class="key"><span class="dot ws"></span><b>CameraWebServer</b><span>สเก็ตช์ตัวอย่างของ Arduino ไม่มีมอเตอร์</span></div>
+      <div class="key"><span class="dot rb"></span><b>esp32cam_robot</b><span>เฟิร์มแวร์หุ่นยนต์ มีมอเตอร์</span></div>
+      <div class="key"><span class="dot same"></span><span>สีจางในตาราง = สองสเก็ตช์ตั้งเหมือนกัน</span></div>
+    </div>
+  </header>
+
+  <!-- ============ 1 ============ -->
+  <section>
+    <div class="shead">
+      <div class="num">01</div>
+      <h2>
+        <code>camera_config_t</code> — ค่าที่ล็อกตอนเปิดไดรเวอร์
+        <span class="when">เขียนครั้งเดียวตอน esp_camera_init() เปลี่ยนทีหลังต้อง deinit ก่อน</span>
+      </h2>
+    </div>
+    <p>
+      ก้อนนี้เป็นค่าที่ไดรเวอร์ใช้<strong>จองหน่วยความจำ</strong> ไม่ใช่แค่ค่าภาพ —
+      <code>frame_size</code> กับ <code>fb_count</code> ตัดสินว่าจะกิน PSRAM เท่าไร ก่อนที่จะมีภาพแรกเสียอีก
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>พารามิเตอร์</th>
+            <th>คืออะไร</th>
+            <th class="c-ws">CameraWebServer</th>
+            <th class="c-rb">esp32cam_robot</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="diff">
+            <td class="p">xclk_freq_hz</td>
+            <td class="d">สัญญาณนาฬิกาที่ป้อนให้เซนเซอร์ เป็น<b>เพดานของ pixel clock</b> — ยิ่งสูงเซนเซอร์ยิ่งดันเฟรมออกได้เร็ว แต่สูงเกินบางบอร์ดจะได้ภาพเป็นเส้น</td>
+            <td class="v ws">21000000 <em>(21 MHz)</em></td>
+            <td class="v rb">20000000 <em>(20 MHz)</em></td>
+          </tr>
+          <tr>
+            <td class="p">pixel_format</td>
+            <td class="d">รูปแบบข้อมูลที่ออกจากเซนเซอร์ <code>JPEG</code> คือให้ DSP ในตัว OV2640 บีบให้เลย ซีพียูไม่ต้องทำอะไร</td>
+            <td class="v">PIXFORMAT_JPEG</td>
+            <td class="v">PIXFORMAT_JPEG</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">frame_size</td>
+            <td class="d">ความละเอียด ค่านี้กำหนดขนาด buffer ที่จอง — จองตามค่านี้ ไม่ใช่ตามที่ใช้จริงทีหลัง</td>
+            <td class="v ws">FRAMESIZE_UXGA <em>1600×1200</em></td>
+            <td class="v rb">FRAMESIZE_VGA <em>640×480</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">jpeg_quality</td>
+            <td class="d"><b>ยิ่งเลขน้อยยิ่งสวยและยิ่งไฟล์ใหญ่</b> (กลับด้านจากที่คุ้น) ช่วง 10–63 เป็นปุ่มที่ขยับ fps แรงที่สุดในบรรดาค่าฝั่งกล้อง</td>
+            <td class="v ws">10 <em>(เมื่อเจอ PSRAM)</em></td>
+            <td class="v rb">12</td>
+          </tr>
+          <tr>
+            <td class="p">fb_count</td>
+            <td class="d">จำนวน frame buffer คู่กับ <code>grab_mode</code> — buffer เกินจำเป็นแต่ละใบคือเฟรมเก่าที่ต่อคิวรออยู่ = ดีเลย์เพิ่ม</td>
+            <td class="v">2 <em>(เมื่อเจอ PSRAM)</em></td>
+            <td class="v">2</td>
+          </tr>
+          <tr>
+            <td class="p">fb_location</td>
+            <td class="d">จอง buffer ไว้ที่ไหน PSRAM มีที่พอสำหรับความละเอียดสูง ส่วน DRAM ในชิปไม่พอ</td>
+            <td class="v">CAMERA_FB_IN_PSRAM</td>
+            <td class="v">CAMERA_FB_IN_PSRAM</td>
+          </tr>
+          <tr>
+            <td class="p">grab_mode</td>
+            <td class="d"><code>LATEST</code> = เอาเฟรมล่าสุดเสมอ ทิ้งของเก่า (ดีเลย์ต่ำ) ส่วน <code>WHEN_EMPTY</code> = รอให้คิวว่างก่อน (ไม่ทิ้งเฟรม แต่ดีเลย์สะสม)</td>
+            <td class="v">CAMERA_GRAB_LATEST <em>(สลับให้เมื่อเจอ PSRAM)</em></td>
+            <td class="v">CAMERA_GRAB_LATEST</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <span class="tag">กับดัก</span>
+      <p><b><code>frame_size</code> ที่เขียนตรงนี้ ไม่ใช่ความละเอียดที่ได้จริง</b> — <code>CameraWebServer</code> จอง buffer ขนาด UXGA แล้วบรรทัดสุดท้ายของ <code>setup()</code> สั่ง <code>set_framesize(QVGA)</code> ทับทันทีเพื่อให้เฟรมแรกๆ มาเร็ว ผลคือถ้าไม่มีใครสั่งเปลี่ยน มันจะสตรีมที่ <b>320×240</b> ตลอด</p>
+      <p>เรื่องนี้กระทบการตรวจจับกรวยโดยตรง เพราะ <code>min_contour_area</code> เป็นหน่วยพิกเซลจริง ไม่ใช่สัดส่วน — 1500 px คือ ~0.5% ของ VGA แต่เป็น ~2% ของ QVGA ตัวตรวจจับเลยมองไม่เห็นกรวยเฉยๆ</p>
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section>
+    <div class="shead">
+      <div class="num">02</div>
+      <h2>
+        รีจิสเตอร์เซนเซอร์ — ค่าที่เขียนหลังไดรเวอร์เปิดแล้ว
+        <span class="when">แก้ได้ตลอดเวลาผ่าน sensor_t* หรือ /control?var=…&amp;val=…</span>
+      </h2>
+    </div>
+    <p>
+      <strong>นี่คือจุดที่สองสเก็ตช์ต่างกันมากที่สุด</strong> — <code>CameraWebServer</code> แทบไม่แตะอะไรเลย
+      (มีเงื่อนไขปรับสีอยู่ แต่เช็ก <code>OV3660_PID</code> ซึ่งบอร์ด AI-Thinker เป็น OV2640 จึงไม่เข้าเงื่อนไข)
+      ส่วนเฟิร์มแวร์หุ่นยนต์ตั้งไว้ 15 ค่าใน <code>updateCameraSettings()</code> เพราะมันถ่ายจากรถที่กำลังวิ่ง
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>พารามิเตอร์</th>
+            <th>คืออะไร</th>
+            <th class="c-ws">CameraWebServer</th>
+            <th class="c-rb">esp32cam_robot</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="diff">
+            <td class="p">set_ae_level</td>
+            <td class="d">อคติของการวัดแสง ช่วง −2..+2 <b>ค่าลบ = สั่งให้ภาพมืดลง</b> ซึ่งแปลว่าชัตเตอร์สั้นลง = กันภาพเบลอจากการเคลื่อนที่</td>
+            <td class="v ws"><span class="na">ไม่ตั้ง (0)</span></td>
+            <td class="v rb">−1</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_gainceiling</td>
+            <td class="d">เพดานเกนที่ AGC ดันขึ้นได้ (2X…128X) ยิ่งสูงยิ่งสว่างในที่มืด แลกกับนอยส์</td>
+            <td class="v ws"><span class="na">ไม่ตั้ง</span></td>
+            <td class="v rb">GAINCEILING_4X</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_exposure_ctrl<br>set_aec2</td>
+            <td class="d">AEC = ออโต้ชัตเตอร์ <code>aec2</code> คือลูปวัดแสงตัวที่สองที่ทำใน DSP <b>เป็นคนละลูปกัน ต้องปิด/เปิดแยก</b></td>
+            <td class="v ws"><span class="na">ค่าเริ่มต้น (เปิด)</span></td>
+            <td class="v rb">1, 1 <em>(สั่งเปิดชัดเจน)</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_gain_ctrl</td>
+            <td class="d">AGC = ออโต้เกน ทำงานคู่กับ AEC ถ้าปิด AEC อย่างเดียว AGC จะดันเกนมาชดเชยจนภาพยังสว่างอยู่ดี</td>
+            <td class="v ws"><span class="na">ค่าเริ่มต้น (เปิด)</span></td>
+            <td class="v rb">1</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_lenc</td>
+            <td class="d">Lens correction — ชดเชยมุมภาพที่มืดกว่ากลางภาพ (vignetting) ปิดไว้เป็นค่าเริ่มต้นของไดรเวอร์</td>
+            <td class="v ws"><span class="na">ปิด</span></td>
+            <td class="v rb">1</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_bpc<br>set_wpc</td>
+            <td class="d">Black / white pixel correction — ซ่อมพิกเซลตายและพิกเซลค้างสว่าง</td>
+            <td class="v ws"><span class="na">ปิด</span></td>
+            <td class="v rb">1, 1</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_raw_gma</td>
+            <td class="d">เส้นโค้งแกมมา — ช่วยไล่โทนกลางให้กว้างขึ้นมาก โดยเฉพาะในร่ม</td>
+            <td class="v ws"><span class="na">ปิด</span></td>
+            <td class="v rb">1</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_dcw</td>
+            <td class="d">Downsize/crop ในตัวเซนเซอร์ ทำให้การย่อภาพคมกว่าปล่อยให้ตัดพิกเซลทิ้งดื้อๆ</td>
+            <td class="v ws"><span class="na">ปิด</span></td>
+            <td class="v rb">1</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_whitebal<br>set_awb_gain<br>set_wb_mode</td>
+            <td class="d">AWB สามชั้น: เปิดลูป / เปิดการปรับเกนของลูป / โหมด (0=อัตโนมัติ, 1=แดด, …) <b>ทั้งสามเป็นคนละสวิตช์</b></td>
+            <td class="v ws"><span class="na">ค่าเริ่มต้น</span></td>
+            <td class="v rb">1, 1, 0</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_contrast<br>set_saturation</td>
+            <td class="d">คอนทราสต์บวกนิดช่วยให้ขอบรอด JPEG ได้ดีขึ้น ส่วนความอิ่มสีปล่อยกลางไว้</td>
+            <td class="v ws"><span class="na">ไม่ตั้ง</span></td>
+            <td class="v rb">+1, 0</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">set_framesize</td>
+            <td class="d">เปลี่ยนความละเอียดตอนรัน ไม่ต้อง deinit ไดรเวอร์</td>
+            <td class="v ws">QVGA <em>(ทับ UXGA ตอนบูต)</em></td>
+            <td class="v rb">ตามค่าที่สั่งล่าสุด</td>
+          </tr>
+          <tr>
+            <td class="p">set_sharpness<br>set_denoise</td>
+            <td class="d">มีในเฮดเดอร์ แต่ <b>OV2640 ไม่ได้ทำไว้</b> เรียกไปก็คืน −1 เงียบๆ อย่าเสียเวลาจูน</td>
+            <td class="v"><span class="na">ใช้ไม่ได้</span></td>
+            <td class="v"><span class="na">ใช้ไม่ได้</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <span class="tag">ลำดับสำคัญ</span>
+      <p><b><code>ae_level</code> ต้องเขียนก่อนล็อก AEC เสมอ</b> ถ้าล็อกไปแล้วค่อยเขียน มันจะถูกแช่ไว้และไม่มีผลอะไรเลย ด้วยเหตุผลเดียวกัน <code>camera_control.lock_image_settings()</code> จึงรอ 2 วินาทีให้ภาพนิ่งก่อนค่อยล็อก จะได้แช่ภาพที่ปรับตัวเสร็จแล้ว ไม่ใช่ภาพครึ่งๆ กลางๆ</p>
+      <p>และต้อง<b>ล็อก AWB ก่อนจูนค่า HSV เสมอ</b> — AWB ทำงานด้วยการปรับเกนช่องน้ำเงินกับแดง ซึ่งเป็นแกนเดียวกับที่กรวยสีฟ้าอยู่พอดี</p>
+    </div>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section>
+    <div class="shead">
+      <div class="num">03</div>
+      <h2>
+        การส่งภาพ — MJPEG (หลัก) และ UDP (สำรอง)
+        <span class="when">ตั้งแต่ 6 ก.ย. 2026 ทั้งสองสเก็ตช์ส่งภาพวิธีเดียวกัน</span>
+      </h2>
+    </div>
+    <p>
+      MJPEG แทบไม่มีปุ่มให้หมุน เพราะ <strong>TCP จัดจังหวะให้เอง</strong> — ถ้าลิงก์แคบ มันชะลอการส่งลง
+      ไม่ใช่ทิ้งข้อมูล ภาพจึงมาครบตรงไบต์เสมอหรือไม่ก็ค้างไปเลย ไม่มีสภาพครึ่งๆ กลางๆ
+      ส่วนฝั่ง UDP มีค่าคงที่ให้ปรับเยอะ เพราะต้องคุมจังหวะยิงแพ็กเก็ตเองทั้งหมด
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>พารามิเตอร์</th>
+            <th>คืออะไร</th>
+            <th class="c-ws">CameraWebServer</th>
+            <th class="c-rb">esp32cam_robot</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="p">httpd × 2</td>
+            <td class="d">แยก httpd สองตัว — พอร์ต 80 (<code>/control</code>, <code>/status</code>, <code>/capture</code>) กับ 81 (<code>/stream</code>) <b>แยกเพราะ handler ของ <code>/stream</code> ไม่มีวัน return ตราบใดที่ยังมี client</b> ถ้าอยู่ตัวเดียวกันจะบล็อก <code>/status</code> ไปด้วย</td>
+            <td class="v">80 + 81</td>
+            <td class="v">80 + 81</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">max_uri_handlers</td>
+            <td class="d">จำนวน URI สูงสุดที่ลงทะเบียนได้ต่อ httpd หนึ่งตัว</td>
+            <td class="v ws">16</td>
+            <td class="v rb">8</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">stack_size</td>
+            <td class="d">สแตกของ task ที่รัน handler — <code>/stream</code> เขียน chunk ก้อนใหญ่ ต้องมีที่พอ</td>
+            <td class="v ws"><span class="na">ค่าเริ่มต้น</span></td>
+            <td class="v rb">8192</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">X-Framerate</td>
+            <td class="d">เฮดเดอร์บอกเฟรมเรตให้ client รู้ <b>ไม่มีผลกับความเร็วจริง</b> เป็นข้อมูลประกอบเฉยๆ</td>
+            <td class="v ws">"60"</td>
+            <td class="v rb"><span class="na">ไม่ส่ง</span></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">VIDEO_CHUNK_SIZE</td>
+            <td class="d">ขนาดชิ้นที่หั่น JPEG ก่อนยิง UDP ตั้ง 1400 ให้ต่ำกว่า MTU 1500 จะได้ไม่โดน IP fragment ซ้ำอีกชั้น</td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb">1400 <em>ไบต์</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">CHUNK_GAP_US</td>
+            <td class="d">หน่วงระหว่างชิ้น กะเวลาออกอากาศคร่าวๆ น้อยเกินจะท่วมคิว TX ของ WiFi</td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb">500 <em>µs</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">CHUNK_YIELD_EVERY</td>
+            <td class="d">คืน CPU ให้ scheduler ทุกกี่ชิ้น — เดิมหน่วง 2 ms ทุกชิ้น ซึ่งเป็นเพดาน fps ตัวจริง (VGA ~29 ชิ้น = 58 ms/เฟรม)</td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb">4 <em>ชิ้น</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">MIN_FRAME_INTERVAL</td>
+            <td class="d">ระยะห่างขั้นต่ำระหว่างเฟรม เป็นแค่พื้น ตัวคุมจังหวะจริงคือแฟล็ก <code>tx_ready</code></td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb">15 <em>ms</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">tx_buffer</td>
+            <td class="d">บัฟเฟอร์ที่ก๊อปเฟรมมาพักก่อนหั่นส่ง จองใน PSRAM <b>ถ้าจองไม่ได้บอร์ดจะรีบูตวนไปเรื่อยๆ</b> (ต้องเปิด PSRAM ตอนแฟลช)</td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb">1 MB <em>ใน PSRAM</em></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">QUALITY_BEST<br>QUALITY_WORST</td>
+            <td class="d">กรอบที่ลูป adaptive quality ขยับได้ ต่ำ = สวย <b>ทำงานเฉพาะโหมด UDP</b></td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb">10 … 28</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">CHUNK_DELAY_US</td>
+            <td class="d">ประกาศไว้ที่ 1000 µs แต่ <b>ไม่มีโค้ดที่ไหนเรียกใช้</b> — ของเหลือจากรุ่นก่อน ไม่ต้องไปปรับ</td>
+            <td class="v ws"><span class="na">ไม่มี</span></td>
+            <td class="v rb"><span class="na">1000 (ไม่ถูกใช้)</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <span class="tag">ทำไมถึงย้ายมา MJPEG</span>
+      <p>UDP ไม่มีการส่งซ้ำ เฟรม VGA หนึ่งเฟรมถูกหั่นราว 29 ชิ้น <b>หายชิ้นเดียวก็เสียทั้งเฟรม</b> เพราะฝั่ง PC ต้องได้ครบทุกชิ้นถึงจะ decode ส่วน TCP ส่งซ้ำให้เอง</p>
+      <p>เก็บทาง UDP ไว้เพราะเป็นทางเดียวที่<b>ค้นหา PC เองได้โดยไม่ต้องรู้ IP ก่อน</b> สลับด้วยคำสั่ง UDP <code>9</code> (ไป UDP) / <code>8</code> (กลับ MJPEG) หรือ <code>/control?var=video_mode&amp;val=1</code></p>
+    </div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section>
+    <div class="shead">
+      <div class="num">04</div>
+      <h2>
+        เวลา ความปลอดภัย และวิทยุ
+        <span class="when">เฉพาะ esp32cam_robot — สเก็ตช์ตัวอย่างไม่มีอะไรพวกนี้เลย</span>
+      </h2>
+    </div>
+    <p>
+      ค่าชุดนี้ไม่เกี่ยวกับภาพ แต่เป็นตัวตัดสินว่ารถจะหยุดเมื่อไรและบอร์ดจะรีบูตเมื่อไร —
+      <strong>ทุกตัวมีคู่ของมันอยู่ฝั่ง PC</strong> ถ้าแก้ข้างเดียวจะเพี้ยน
+    </p>
+    <div class="scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>พารามิเตอร์</th>
+            <th>คืออะไร</th>
+            <th class="c-rb">ค่าที่ตั้งไว้</th>
+            <th>คู่ของมันฝั่ง PC</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="p">AUTOSTOP_INTERVAL</td>
+            <td class="d">ไม่ได้รับแพ็กเก็ตควบคุมนานเท่านี้ → <b>สั่งมอเตอร์เป็นศูนย์</b> เป็นเซฟตี้ชั้นล่างสุด</td>
+            <td class="v rb">150 <em>ms</em></td>
+            <td class="v"><code>RobotLink.drive()</code> ส่งซ้ำทุก 50 ms</td>
+          </tr>
+          <tr>
+            <td class="p">LOST_GUI_TIMEOUT</td>
+            <td class="d">ไม่ได้ยิน beacon นานเท่านี้ → ถือว่า PC หลุด ปิดไฟและหยุดส่งภาพ</td>
+            <td class="v rb">90000 <em>ms (90 วิ)</em></td>
+            <td class="v">beacon ทุก 0.5 วิ</td>
+          </tr>
+          <tr>
+            <td class="p">BEACON_TIMEOUT</td>
+            <td class="d">เงียบนานกว่านี้ → <b>บอร์ดรีบูตตัวเอง</b> แล้วมักได้ IP ใหม่จาก DHCP</td>
+            <td class="v rb">120000 <em>ms (2 นาที)</em></td>
+            <td class="v">handler ของ <code>/stream</code> นับเป็นการติดต่อด้วย</td>
+          </tr>
+          <tr>
+            <td class="p">WATCHDOG_TIMEOUT_S</td>
+            <td class="d">task ไหนไม่ป้อนหมาเฝ้าบ้านภายในเวลานี้ → รีเซ็ตทั้งชิป กันค้าง</td>
+            <td class="v rb">5 <em>วินาที</em></td>
+            <td class="v"><span class="na">—</span></td>
+          </tr>
+          <tr>
+            <td class="p">TELEMETRY_INTERVAL</td>
+            <td class="d">ความถี่ที่ส่ง RSSI / SSID / ชื่อบอร์ด กลับมาให้ PC</td>
+            <td class="v rb">1000 <em>ms</em></td>
+            <td class="v">พอร์ต 44444</td>
+          </tr>
+          <tr>
+            <td class="p">POWER_SAVE_DELAY</td>
+            <td class="d">จังหวะวนเช็กตอนไม่มี PC — โหมด UDP จะสั่งเซนเซอร์นอนเพื่อประหยัดไฟ <b>โหมด MJPEG ไม่ทำ</b></td>
+            <td class="v rb">500 <em>ms</em></td>
+            <td class="v"><span class="na">—</span></td>
+          </tr>
+          <tr>
+            <td class="p">SEQ_LIMIT<br>SEQ_CLOSE_UPPER / LOWER</td>
+            <td class="d">เลขลำดับวนที่ 10000 สองค่าล่างใช้แยก "เลขวนกลับ" ออกจาก "แพ็กเก็ตเก่ามาช้า"</td>
+            <td class="v rb">10000 / 9000 / 1000</td>
+            <td class="v"><code>REORDER_WINDOW = 30</code></td>
+          </tr>
+          <tr>
+            <td class="p">PWM_FREQ<br>PWM_RES<br>MAX_DUTY</td>
+            <td class="d">สัญญาณเซอร์โว/ESC มาตรฐาน: 50 Hz, ความละเอียด 16 บิต ส่วน <code>MAX_DUTY</code> คือตัวคูณที่แปลง µs เป็น duty</td>
+            <td class="v rb">50 Hz / 16 bit / 3.27675</td>
+            <td class="v"><code>ev()</code> แปลง −1..1 → 1000–2000 µs</td>
+          </tr>
+          <tr class="diff">
+            <td class="p">WiFi.setSleep</td>
+            <td class="d"><b>ต้องปิด</b> — power save จอดวิทยุไว้ระหว่าง beacon เพิ่มความหน่วงเป็นสิบถึงร้อย ms</td>
+            <td class="v rb">false <em>(ทั้งสองสเก็ตช์)</em></td>
+            <td class="v"><span class="na">—</span></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">WiFi.setTxPower</td>
+            <td class="d">กำลังส่งสูงสุด = ระยะไกลขึ้นและส่งซ้ำน้อยลง</td>
+            <td class="v rb">19.5 dBm <em>(หุ่นยนต์เท่านั้น)</em></td>
+            <td class="v"><span class="na">—</span></td>
+          </tr>
+          <tr class="diff">
+            <td class="p">setCpuFrequencyMhz</td>
+            <td class="d">ดันซีพียูเต็มสปีด</td>
+            <td class="v rb">240 <em>(หุ่นยนต์เท่านั้น)</em></td>
+            <td class="v"><span class="na">—</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section>
+    <div class="shead">
+      <div class="num">05</div>
+      <h2>ปุ่มไหนขยับ fps ได้จริง</h2>
+    </div>
+    <p>เรียงจากผลมากไปน้อย — และข้อสุดท้ายคือเหตุผลว่าทำไมสามข้อแรกอาจไม่ช่วยอะไรเลย</p>
+    <ol class="rank">
+      <li>
+        <div class="r">01</div>
+        <div>
+          <b><code>jpeg_quality</code> — ปุ่มที่แรงที่สุด</b>
+          <span>ขยับจาก 10 ไป 16–18 ลดขนาดต่อเฟรมได้ราวครึ่ง โดยที่ตัวตรวจจับก้อนสีฟ้าแยกไม่ออกด้วยซ้ำ</span>
+        </div>
+      </li>
+      <li>
+        <div class="r">02</div>
+        <div>
+          <b><code>frame_size</code> — ลดความละเอียด</b>
+          <span>VGA → QVGA ลดพิกเซลลง 4 เท่า แต่<b>อย่าลืมจูน <code>min_contour_area</code> ใหม่</b> เพราะมันเป็นหน่วยพิกเซลจริง</span>
+        </div>
+      </li>
+      <li>
+        <div class="r">03</div>
+        <div>
+          <b><code>ae_level = −1</code> — เมื่อ fps ตกในห้องมืด</b>
+          <span>ปล่อยไว้ AEC จะเลือกเวลาเปิดชัตเตอร์นานกว่าคาบของเฟรม เซนเซอร์เลยแทรกบรรทัดเปล่า และ<b>เฟรมเรตของตัวเซนเซอร์เองพัง</b> ทั้งที่ WiFi ยังว่าง</span>
+        </div>
+      </li>
+      <li>
+        <div class="r">04</div>
+        <div>
+          <b>ก่อนหมุนอะไร วัด KB/s ไม่ใช่ fps</b>
+          <span>ถ้า fps ขึ้นแต่ <b>KB/s นิ่ง</b> แปลว่าลิงก์ตันอยู่แล้ว ทุกอย่างที่ทำคือทำเฟรมให้เล็กลงเฉยๆ — ถ้าเป็นแบบนั้น ทางแก้อยู่ที่ตัวเครื่อง ไล่ตามลำดับ: จัมเปอร์เสาอากาศ → ไฟเลี้ยง (5V ≥1A สายสั้นหนา) → ระยะห่าง → ช่องสัญญาณ 2.4 GHz ของเราเตอร์</span>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    V2/CameraWebServer/ · V2/firmware/esp32cam_robot/ · AI-Thinker ESP32-CAM (OV2640) · esp32 core 3.3.11
+  </footer>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+# ── Secrets — never commit real WiFi credentials ──────────────────────────
+# Each firmware sketch reads wifi_secrets.h behind a __has_include guard.
+# Copy wifi_secrets.example.h next to it and fill in your own network.
+wifi_secrets.h
+.env
+.env.*
+!.env.example
+
+# ── Captured frames and recordings ────────────────────────────────────────
+esp32_samples/
+*.mp4
+*.avi
+
+# ── Python ────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ── Arduino / PlatformIO build output ─────────────────────────────────────
+build/
+.pio/
+*.bin
+*.elf
+
+# ── Editor / OS ───────────────────────────────────────────────────────────
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
